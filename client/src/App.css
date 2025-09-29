@@ -1,0 +1,160 @@
+/* App.css */
+
+/* --- Base e Font --- */
+body, .app-container {
+  background: linear-gradient(145deg, #1a1b26 0%, #121218 100%);
+  min-height: 100vh;
+  font-family: 'Inter', 'Roboto', sans-serif;
+  color: #e0e0e8;
+  padding: 20px;
+}
+
+/* --- Titoli --- */
+h2 {
+  font-size: 36px;
+  text-align: center;
+  color: #00ffe6;
+  letter-spacing: 2px;
+  text-shadow: 0 2px 24px #00ffe6aa;
+  margin-bottom: 24px;
+}
+
+h3 {
+  font-size: 22px;
+  color: #6C63FF;
+  margin-bottom: 12px;
+}
+
+/* --- Sezioni --- */
+section {
+  background: linear-gradient(145deg, #1e1f2c 80%, #16161c 100%);
+  border-radius: 16px;
+  padding: 20px;
+  margin-top: 20px;
+  box-shadow: 0 8px 24px #0006, inset 0 2px 6px #00ffe633;
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+section:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px #00ffe644, inset 0 2px 6px #00ffe666;
+}
+
+/* --- Input & Textarea --- */
+input, select, textarea {
+  width: 100%;
+  padding: 10px 12px;
+  margin-top: 6px;
+  border-radius: 10px;
+  border: 1px solid #2c2f44;
+  background: #1e1f2c;
+  color: #00ffe6;
+  font-family: monospace;
+  font-size: 14px;
+  transition: border 0.3s, box-shadow 0.3s;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: #6C63FF;
+  box-shadow: 0 0 12px #6C63FF55;
+  outline: none;
+}
+
+/* --- Pulsanti --- */
+button, .btn {
+  display: inline-block;
+  background: linear-gradient(90deg, #6C63FF 60%, #00ffe6 100%);
+  color: #121218;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 20px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s, background 0.3s;
+  box-shadow: 0 4px 12px #00ffe644;
+}
+
+button:hover, .btn:hover {
+  background: linear-gradient(90deg, #00ffe6 60%, #6C63FF 100%);
+  transform: scale(1.05);
+  box-shadow: 0 6px 18px #00ffe666;
+  color: #121218;
+}
+
+/* --- Blockchain Container --- */
+.chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 20px;
+  justify-content: center;
+}
+
+/* --- Cubo del blocco --- */
+.block {
+  width: 220px;
+  height: 140px;
+  perspective: 900px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.block-inner {
+  background: linear-gradient(135deg, #23294d 70%, #23242b 100%);
+  border-radius: 16px;
+  box-shadow: 0 6px 20px #0008, 0 0 4px #00ffe688 inset;
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.block-inner:hover {
+  transform: rotateY(8deg) scale(1.05);
+  box-shadow: 0 12px 32px #00ffe688, 0 2px 12px #18181fdd;
+}
+
+/* --- Timestamp sopra --- */
+.block-timestamp {
+  font-size: 12px;
+  color: #6C63FF;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+/* --- Contenitore hash --- */
+.block-hashes {
+  display: flex;
+  justify-content: space-between;
+  font-family: monospace;
+  font-size: 11px;
+  color: #00ffe6;
+}
+
+/* --- Hash blocco precedente e attuale --- */
+.block-prev, .block-current {
+  width: 48%;
+  word-break: break-all;
+  padding: 4px;
+  border-radius: 6px;
+  background: #1e1f2c;
+  text-align: center;
+}
+
+/* --- Scrollbar --- */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e1f2c;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #6C63FF;
+  border-radius: 8px;
+}
