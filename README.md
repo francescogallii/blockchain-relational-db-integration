@@ -1,4 +1,3 @@
-````markdown
 # 🧱 Blockchain DB — Installazione e Avvio su Arch Linux
 
 Questo progetto implementa una semplice blockchain **append-only** basata su **PostgreSQL**, con backend Node.js e frontend React.  
