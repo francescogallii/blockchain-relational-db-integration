@@ -1,205 +1,221 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
-// Funzioni crittografiche helper (usa WebCrypto API)
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:4001";
+
 async function generateKeyPair() {
   const keyPair = await window.crypto.subtle.generateKey(
-    { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    {
+      name: "RSA-OAEP",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
     true,
     ["encrypt", "decrypt"]
   );
 
-  const publicKeyPem = await exportKeyToPem(keyPair.publicKey, "PUBLIC KEY");
-  const privateKeyPem = await exportKeyToPem(keyPair.privateKey, "PRIVATE KEY");
+  const publicKeyPem = await exportKeyToPem(keyPair.publicKey);
+  const privateKeyPem = await exportKeyToPem(keyPair.privateKey);
   return { publicKeyPem, privateKeyPem };
 }
 
-async function exportKeyToPem(key, type) {
-  const exported = await window.crypto.subtle.exportKey("spki", key).catch(() => window.crypto.subtle.exportKey("pkcs8", key));
-  const exportedAsString = String.fromCharCode(...new Uint8Array(exported));
-  const exportedAsBase64 = window.btoa(exportedAsString);
-  return `-----BEGIN ${type}-----\n${exportedAsBase64}\n-----END ${type}-----`;
+async function exportKeyToPem(key) {
+  if (key.type === "public") {
+    const exported = await window.crypto.subtle.exportKey("spki", key);
+    const exportedAsString = String.fromCharCode(...new Uint8Array(exported));
+    const exportedAsBase64 = window.btoa(exportedAsString);
+    return `-----BEGIN PUBLIC KEY-----\n${chunkBase64(exportedAsBase64)}\n-----END PUBLIC KEY-----`;
+  } else if (key.type === "private") {
+    const exported = await window.crypto.subtle.exportKey("pkcs8", key);
+    const exportedAsString = String.fromCharCode(...new Uint8Array(exported));
+    const exportedAsBase64 = window.btoa(exportedAsString);
+    return `-----BEGIN PRIVATE KEY-----\n${chunkBase64(exportedAsBase64)}\n-----END PRIVATE KEY-----`;
+  }
+  throw new Error("Unknown key type");
 }
 
-async function importPublicKey(pem) {
-  const pemContents = pem.replace(/-----(BEGIN|END) PUBLIC KEY-----/g, "").trim();
-  const binaryDer = Uint8Array.from(window.atob(pemContents), c => c.charCodeAt(0));
-  return crypto.subtle.importKey("spki", binaryDer.buffer, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["encrypt"]);
-}
-
-async function importPrivateKey(pem) {
-  const pemContents = pem.replace(/-----(BEGIN|END) PRIVATE KEY-----/g, "").trim();
-  const binaryDer = Uint8Array.from(window.atob(pemContents), c => c.charCodeAt(0));
-  return crypto.subtle.importKey("pkcs8", binaryDer.buffer, { name: "RSA-OAEP", hash: "SHA-256" }, true, ["decrypt"]);
-}
-
-async function encryptWithPublicKey(publicKeyPem, plaintext) {
-  const key = await importPublicKey(publicKeyPem);
-  const enc = new TextEncoder().encode(plaintext);
-  const encrypted = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, key, enc);
-  return btoa(String.fromCharCode(...new Uint8Array(encrypted)));
-}
-
-async function decryptWithPrivateKey(privateKeyPem, ciphertextB64) {
-  const key = await importPrivateKey(privateKeyPem);
-  const encryptedBytes = Uint8Array.from(atob(ciphertextB64), c => c.charCodeAt(0));
-  const decrypted = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, key, encryptedBytes);
-  return new TextDecoder().decode(decrypted);
-}
-
-// Hash del blocco + PoW
-async function calculateHash(data) {
-  const enc = new TextEncoder().encode(data);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", enc);
-  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function mineBlock(block, difficulty = 4) {
-  let nonce = 0;
-  let hash = "";
-  const prefix = "0".repeat(difficulty);
-  do {
-    const toHash = block.prevHash + block.timestamp + JSON.stringify(block.data) + block.publicKey + nonce;
-    hash = await calculateHash(toHash);
-    nonce++;
-  } while (!hash.startsWith(prefix));
-  block.hash = hash;
-  block.nonce = nonce;
-  block.valid = true;
-  return block;
+function chunkBase64(b64) {
+  return b64.match(/.{1,64}/g).join("\n");
 }
 
 export default function App() {
-  const [users, setUsers] = useState([]); // {id, publicKey, privateKey}
+  const [creators, setCreators] = useState([]);
   const [nickname, setNickname] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [selectedCreator, setSelectedCreator] = useState("");
+  const [dataText, setDataText] = useState("");
+  const [privateKeyInput, setPrivateKeyInput] = useState("");
+  const [chain, setChain] = useState([]);
+  const [decryptResults, setDecryptResults] = useState([]);
+  const [decryptLoading, setDecryptLoading] = useState(false);
+  const [decryptPrivateKeyInput, setDecryptPrivateKeyInput] = useState("");
+  const [decryptNickname, setDecryptNickname] = useState("");
 
-  const [chain, setChain] = useState([]); // array di blocchi
-  const [newData, setNewData] = useState("");
-  const [selectedUser, setSelectedUser] = useState("");
+  useEffect(() => {
+    fetchCreators();
+    fetchBlocks();
+    const interval = setInterval(() => fetchBlocks(), 5000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const [decryptId, setDecryptId] = useState("");
-  const [decryptPrivKey, setDecryptPrivKey] = useState("");
-  const [decryptedBlocks, setDecryptedBlocks] = useState([]);
-
-  const difficulty = 4;
-
-  async function registerUser() {
-    if (!nickname) return;
-    // genera chiavi
-    const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-    const newUser = { id: nickname, publicKey: publicKeyPem, privateKey: privateKeyPem };
-    setUsers(prev => [...prev, newUser]);
-    setNickname("");
-    alert(`Utente ${newUser.id} registrato!\n\nChiave privata:\n${privateKeyPem}`);
-  }
-
-  async function addBlock() {
-    if (!selectedUser || !newData) return alert("Seleziona utente e inserisci dati");
-    const user = users.find(u => u.id === selectedUser);
-    if (!user) return;
-
-    const encryptedData = await encryptWithPublicKey(user.publicKey, newData);
-    const prevHash = chain.length > 0 ? chain[chain.length - 1].hash : "0".repeat(64);
-    const block = {
-      index: chain.length,
-      timestamp: new Date().toISOString(),
-      data: encryptedData,
-      publicKey: user.publicKey,
-      author: user.id,
-      prevHash,
-    };
-
-    const mined = await mineBlock(block, difficulty);
-    setChain(prev => [...prev, mined]);
-    setNewData("");
-  }
-
-  async function decryptBlocksForUser() {
-    const user = users.find(u => u.id === decryptId);
-    if (!user) return alert("Utente non trovato");
+  async function fetchCreators() {
     try {
-      const results = [];
-      for (const b of chain.filter(c => c.author === decryptId)) {
-        const dec = await decryptWithPrivateKey(decryptPrivKey, b.data);
-        results.push({ hash: b.hash, data: dec, timestamp: b.timestamp });
-      }
-      setDecryptedBlocks(results);
+      const r = await fetch(`${API_BASE}/creators`);
+      const json = await r.json();
+      setCreators(json);
     } catch (e) {
-      alert("Errore nella decifrazione: chiave errata?");
+      console.error("fetch creators err", e);
+    }
+  }
+
+  async function fetchBlocks() {
+    try {
+      const r = await fetch(`${API_BASE}/blocks`);
+      const json = await r.json();
+      setChain(json);
+    } catch (e) {
+      console.error("fetch blocks err", e);
+    }
+  }
+
+  async function handleRegister() {
+    if (!nickname) return alert("Inserisci un nickname");
+    setLoading(true);
+    try {
+      const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+      const r = await fetch(`${API_BASE}/creators`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: nickname, public_key_pem: publicKeyPem }),
+      });
+      const json = await r.json();
+      if (!r.ok) throw new Error(json.error || JSON.stringify(json));
+      setNickname("");
+      await fetchCreators();
+      alert(`Utente registrato. Salva la chiave privata in un posto sicuro.\n\nChiave privata:\n\n${privateKeyPem}`);
+    } catch (e) {
+      console.error(e);
+      alert("Errore registrazione: " + (e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAddBlock() {
+    if (!selectedCreator) return alert("Seleziona un creator");
+    if (!dataText) return alert("Inserisci dati");
+    if (!privateKeyInput) return alert("Inserisci la chiave privata");
+    setLoading(true);
+    try {
+      const r = await fetch(`${API_BASE}/blocks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          display_name: selectedCreator,
+          private_key_pem: privateKeyInput,
+          data_text: dataText,
+        }),
+      });
+      const json = await r.json();
+      if (!r.ok) throw new Error(json.error || JSON.stringify(json));
+      setDataText("");
+      setPrivateKeyInput("");
+      await fetchBlocks();
+      alert(`Blocco creato: ${json.block_hash}`);
+    } catch (e) {
+      console.error(e);
+      alert("Errore creazione blocco: " + (e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDecrypt() {
+    if (!decryptNickname) return alert("Inserisci nickname");
+    if (!decryptPrivateKeyInput) return alert("Inserisci la chiave privata");
+    setDecryptLoading(true);
+    try {
+      const r = await fetch(`${API_BASE}/decrypt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          display_name: decryptNickname,
+          private_key_pem: decryptPrivateKeyInput,
+        }),
+      });
+      const json = await r.json();
+      if (!r.ok) throw new Error(json.error || JSON.stringify(json));
+      setDecryptResults(json);
+    } catch (e) {
+      console.error(e);
+      alert("Errore decrypt: " + (e.message || e));
+    } finally {
+      setDecryptLoading(false);
     }
   }
 
   return (
     <div style={{ fontFamily: "sans-serif", maxWidth: 1000, margin: "0 auto" }}>
-      <h2>🔐 Blockchain Sensibile (locale)</h2>
+      <h1>Blockchain DB</h1>
 
+      {/* Registrazione */}
       <section style={sectionStyle}>
-        <h3>1️⃣ Registrazione Utente</h3>
+        <h3>Registrazione Utente</h3>
         <input placeholder="Nickname" value={nickname} onChange={e => setNickname(e.target.value)} />
-        <button onClick={registerUser}>Crea utente & genera chiavi</button>
+        <button onClick={handleRegister} disabled={loading}>Registra e genera chiavi</button>
         <ul>
-          {users.map(u => (
-            <li key={u.id}>
-              <b>{u.id}</b>
+          {creators.map(c => (
+            <li key={c.creator_id}>
+              <b>{c.display_name}</b> — <small>{new Date(c.created_at).toLocaleString()}</small>
             </li>
           ))}
         </ul>
       </section>
 
+      {/* Aggiungi Blocco */}
       <section style={sectionStyle}>
-        <h3>2️⃣ Aggiungi Blocco (con Proof of Work)</h3>
-        <select value={selectedUser} onChange={e => setSelectedUser(e.target.value)}>
-          <option value="">-- seleziona utente --</option>
-          {users.map(u => (
-            <option key={u.id} value={u.id}>{u.id}</option>
+        <h3>Aggiungi Blocco</h3>
+        <select value={selectedCreator} onChange={e => setSelectedCreator(e.target.value)}>
+          <option value="">-- seleziona creator --</option>
+          {creators.map(c => (
+            <option key={c.creator_id} value={c.display_name}>{c.display_name}</option>
           ))}
         </select>
-        <br />
-        <textarea
-          rows={4}
-          placeholder="Dati sensibili (verranno cifrati con la chiave pubblica dell'utente)"
-          value={newData}
-          onChange={e => setNewData(e.target.value)}
-          style={{ width: "100%", marginTop: 8 }}
-        />
-        <button onClick={addBlock}>⛏️ Mina & Aggiungi Blocco</button>
+        <textarea rows={4} value={dataText} onChange={e => setDataText(e.target.value)} placeholder="Testo key-value" />
+        <textarea rows={5} value={privateKeyInput} onChange={e => setPrivateKeyInput(e.target.value)} placeholder="Chiave privata PEM" style={{ fontFamily: "monospace" }} />
+        <button onClick={handleAddBlock} disabled={loading}>Mina & Aggiungi</button>
       </section>
 
+      {/* Blockchain */}
       <section style={sectionStyle}>
-        <h3>3️⃣ Catena di Blocchi</h3>
-        {chain.length === 0 && <div>Nessun blocco ancora.</div>}
+        <h3>Catena di blocchi</h3>
+        {chain.length === 0 && <div>Nessun blocco</div>}
         {chain.map(b => (
-          <div key={b.hash} style={{ border: "1px solid #ccc", padding: 8, marginTop: 8 }}>
-            <div><b>Autore:</b> {b.author}</div>
-            <div><b>Hash:</b> {b.hash}</div>
-            <div><b>PrevHash:</b> {b.prevHash}</div>
-            <div><b>Timestamp:</b> {b.timestamp}</div>
-            <div><b>Chiave pubblica:</b> <pre style={{whiteSpace:"pre-wrap"}}>{b.publicKey.slice(0,80)}...</pre></div>
-            <div><b>Valid:</b> {b.valid ? "✅" : "❌"}</div>
+          <div key={b.block_id} style={{ border: "1px solid #ccc", padding: 8, marginTop: 8 }}>
+            <div><b>Autore:</b> {b.display_name || b.creator_id}</div>
+            <div><b>Hash:</b> {b.block_hash}</div>
+            <div><b>PrevHash:</b> {b.previous_hash}</div>
+            <div><b>Timestamp:</b> {new Date(b.created_at).toLocaleString()}</div>
+            <div><b>Nonce:</b> {b.nonce}</div>
+            <div><b>Verified:</b> {b.verified ? "✅" : "❌"}</div>
           </div>
         ))}
       </section>
 
+      {/* Decrypt */}
       <section style={sectionStyle}>
-        <h3>4️⃣ Decripta Blocchi di un Utente</h3>
-        <input placeholder="ID utente" value={decryptId} onChange={e => setDecryptId(e.target.value)} style={{width:"50%"}} />
-        <br />
-        <textarea
-          rows={5}
-          placeholder="Chiave privata PEM"
-          value={decryptPrivKey}
-          onChange={e => setDecryptPrivKey(e.target.value)}
-          style={{ width: "100%", marginTop: 8 }}
-        />
-        <button onClick={decryptBlocksForUser}>🔓 Decripta</button>
-
-        {decryptedBlocks.length > 0 && (
-          <div style={{ marginTop: 10 }}>
-            <h4>Blocchi decifrati per {decryptId}</h4>
-            {decryptedBlocks.map((d, i) => (
+        <h3>Decrypt</h3>
+        <input type="text" placeholder="Nickname" value={decryptNickname} onChange={e => setDecryptNickname(e.target.value)} />
+        <textarea rows={5} value={decryptPrivateKeyInput} onChange={e => setDecryptPrivateKeyInput(e.target.value)} placeholder="Chiave privata PEM" style={{ fontFamily: "monospace" }} />
+        <button onClick={handleDecrypt}>Decripta blocchi</button>
+        {decryptLoading && <div>Decifrando...</div>}
+        {decryptResults.length > 0 && (
+          <div>
+            <h4>Risultati</h4>
+            {decryptResults.map((r, i) => (
               <div key={i} style={{ border: "1px solid #ddd", padding: 8, marginTop: 8 }}>
-                <div><b>Hash:</b> {d.hash}</div>
-                <div><b>Timestamp:</b> {d.timestamp}</div>
-                <div><b>Dati:</b> {d.data}</div>
+                <div><b>Block:</b> {r.block_id}</div>
+                <div><b>Data:</b> <pre>{JSON.stringify(r.data || r.error, null, 2)}</pre></div>
               </div>
             ))}
           </div>
